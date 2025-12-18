@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.security.authentication.AuthenticationManager;
@@ -22,6 +23,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.exc.StreamReadException;
+import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.ObjectMapper;
 
 import static com.maxi.springboot.springboot_crud.security.TokenJwtConfig.*;
@@ -29,8 +32,6 @@ import static com.maxi.springboot.springboot_crud.security.TokenJwtConfig.*;
 public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilter {
 
     private AuthenticationManager authenticationManager;
-
-
 
     public JwtAuthenticationFilter(AuthenticationManager authenticationManager) {
 
@@ -50,11 +51,11 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
             user = new ObjectMapper().readValue(request.getInputStream(), User.class);
             username = user.getUsername();
             password = user.getPassword();
-        } catch (JacksonException e) {
-            // TODO Auto-generated catch block
+        } catch (StreamReadException e) {
+            e.printStackTrace();
+        } catch (DatabindException e) {
             e.printStackTrace();
         } catch (IOException e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
         }
 
@@ -69,25 +70,31 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
     protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain,
             Authentication authResult) throws IOException, ServletException {
 
-        User user = (User) authResult.getPrincipal();
+       org.springframework.security.core.userdetails.User user = (org.springframework.security.core.userdetails.User) authResult
+                .getPrincipal();
         String username = user.getUsername();
+        //un jwt, no puede transformar a json
+        //Collection<? extends GrantedAuthority> roles = authResult.getAuthorities();
 
-        Collection<? extends GrantedAuthority> roles = authResult.getAuthorities();
+        List<String> roles = authResult.getAuthorities()
+        .stream()
+        .map(GrantedAuthority::getAuthority)
+        .toList();
 
-
-        Claims claims = Jwts.claims().build();
-
-        claims.put("authorities", roles);
+        Claims claims = Jwts.claims()
+                .add("authorities", roles)
+                .add("username", username)
+        .build();
 
 
 
         String token = Jwts.builder()
-        .subject(username)
-        .claims(claims)
-        .expiration(new Date(System.currentTimeMillis() + 3600000))
-        .issuedAt(new Date())
-        .signWith(SECRET_KEY)
-        .compact();
+                .subject(username)
+                .claims(claims)
+                .expiration(new Date(System.currentTimeMillis() + 3600000))
+                .issuedAt(new Date())
+                .signWith(SECRET_KEY)
+                .compact();
 
         response.addHeader(HEADER_AUTHORIZATION, PREFIX_TOKEN + token);
 
@@ -105,10 +112,10 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
     @Override
     protected void unsuccessfulAuthentication(HttpServletRequest request, HttpServletResponse response,
             AuthenticationException failed) throws IOException, ServletException {
-       
+
         Map<String, String> body = new HashMap<>();
 
-        //buena practica no ser especificos con username o password
+        // buena practica no ser especificos con username o password
         body.put("message", "Error en la autentication username o password incorrectos!");
 
         body.put("error", failed.getMessage());
@@ -117,9 +124,6 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
         response.setStatus(401);
         response.setContentType(CONTENT_TYPE);
 
-
     }
-
-    
 
 }
